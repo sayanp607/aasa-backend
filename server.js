@@ -28,7 +28,8 @@ const server = http.createServer(app);  // ✅ Correct: create http server
 // ✅ CORS setup
 const FRONTEND_ORIGIN = [
   'http://localhost:5173',
-  'http://192.168.43.1:5173', // Replace with your actual machine's IP
+  'http://192.168.43.1:5173',
+  'https://aasa-five.vercel.app',
 ];
 app.use(cors({
     origin: FRONTEND_ORIGIN,
