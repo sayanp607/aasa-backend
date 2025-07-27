@@ -34,7 +34,7 @@ router.post('/book', auth('user'), async (req, res) => {
 
 
 // Driver fetches all relevant rides
-router.get('/all', auth('driver'), async (req, res) => {
+router.get('/all', auth('driver','admin'), async (req, res) => {
     const rides = await Ride.find({
         $or: [
             { status: 'Pending' },
@@ -50,34 +50,50 @@ router.get('/all', auth('driver'), async (req, res) => {
 });
 
 // Accept ride
-router.post('/accept/:rideId', auth('driver'), async (req, res) => {
-    const ride = await Ride.findById(req.params.rideId);
-    if (!ride || ride.status !== 'Pending') return res.status(400).json({ error: 'Ride is cancelled by the rider' });
+// Accept ride
+router.post('/accept/:rideId', auth('driver', 'admin'), async (req, res) => {
+  const ride = await Ride.findById(req.params.rideId);
+  if (!ride || ride.status !== 'Pending') {
+    return res.status(400).json({ error: 'Ride is cancelled by the rider' });
+  }
 
-    ride.driverId = req.userId;
-    ride.status = 'Accepted';
-    ride.otp = Math.floor(1000 + Math.random() * 9000).toString();
-    await ride.save();
+  ride.driverId = req.userId;
+  ride.status = 'Accepted';
+  ride.otp = Math.floor(1000 + Math.random() * 9000).toString();
+  await ride.save();
 
-    const io = req.app.get('io');
-    const userSockets = req.app.get('userSockets');
-    const userSocketId = userSockets.get(ride.userId.toString());
-    const user = await User.findById(ride.userId);
+  const io = req.app.get('io');
+  const userSockets = req.app.get('userSockets');
+  const userSocketId = userSockets.get(ride.userId.toString());
+  const user = await User.findById(ride.userId);
+
+  let driverPhone = "N/A";
+
+  // 👇 If phone is sent from frontend (e.g., admin's phone), use it
+  if (req.body.phone) {
+    driverPhone = req.body.phone;
+  } else {
     const driver = await Driver.findById(req.userId);
-
-    if (userSocketId) {
-        io.to(userSocketId).emit('ride_accepted', {
-            rideId: ride._id,
-            otp: ride.otp,
-            driverPhone: driver.phone
-        });
+    if (driver) {
+      driverPhone = driver.phone;
     }
+  }
 
-    res.json({ msg: 'Ride accepted', ride, userPhone: user.phone });
+  // ✅ Send ride accepted event to user
+  if (userSocketId) {
+    io.to(userSocketId).emit('ride_accepted', {
+      rideId: ride._id,
+      otp: ride.otp,
+      driverPhone: driverPhone,
+    });
+  }
+
+  res.json({ msg: 'Ride accepted', ride, userPhone: user?.phone || null });
 });
 
+
 // Reject ride
-router.post('/reject/:rideId', auth('driver'), async (req, res) => {
+router.post('/reject/:rideId', auth('driver','admin'), async (req, res) => {
     const ride = await Ride.findById(req.params.rideId);
     if (!ride || ride.status !== 'Pending') return res.status(400).json({ error: 'Ride is cancelled by the rider' });
 
@@ -97,7 +113,7 @@ router.post('/reject/:rideId', auth('driver'), async (req, res) => {
 });
 
 // Complete ride
-router.post('/complete/:rideId', auth('driver'), async (req, res) => {
+router.post('/complete/:rideId', auth('driver','admin'), async (req, res) => {
     const ride = await Ride.findById(req.params.rideId);
     if (!ride) return res.status(404).json({ error: 'Ride not found' });
 
@@ -112,7 +128,7 @@ router.post('/complete/:rideId', auth('driver'), async (req, res) => {
 });
 
 // Delete ride
-router.delete('/delete/:rideId', auth('driver'), async (req, res) => {
+router.delete('/delete/:rideId', auth('driver','admin'), async (req, res) => {
     const ride = await Ride.findById(req.params.rideId);
     if (!ride) return res.status(404).json({ error: 'Ride not found' });
 
