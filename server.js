@@ -19,6 +19,14 @@ const rideRoutes = require('./routes/rideRoutes');
 const deliveryorderRoutes = require("./routes/deliveryRoutes");
 const deliveryuserRoutes = require("./routes/deliveryuserRoutes");
 const contactRoutes = require('./routes/contactRoute');
+const tripRoutes = require('./routes/tripRoutes');
+const admintripRoutes = require('./routes/admintrip');
+const bookingRoutes = require('./routes/booking');
+const tripcartRoutes = require('./routes/tripcart');
+const cartitemRoutes = require('./routes/cartitem');
+const triporderRoutes = require('./routes/triporder');
+const rappellingRoutes = require('./routes/rappelling');
+
 
 dotenv.config();
 
@@ -61,6 +69,12 @@ app.use('/api/rides', rideRoutes);
 app.use("/api/orders", deliveryorderRoutes);
 app.use("/api/delivery-users", deliveryuserRoutes);
 app.use("/api/contact", contactRoutes);
+app.use('/api/bookings',bookingRoutes);
+app.use('/api/trips', tripRoutes);    
+app.use('/api/admintrip', admintripRoutes);
+app.use('/api/tripcart', cartitemRoutes);
+app.use('/api/rappelling', rappellingRoutes);
+app.use('/api/triporder', triporderRoutes);
 
 // ✅ Store user sockets
 const userSockets = new Map();
