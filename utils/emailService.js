@@ -3,15 +3,15 @@ const nodemailer = require('nodemailer');
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'sayanp607@gmail.com',
-    pass: 'rxgf hxea gzcn iudm'  
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
   }
 });
 
 const sendOrderNotification = async (order) => {
   const mailOptions = {
-    from: 'sayanp607@gmail.com',
-    to: 'sayanp607@gmail.com',
+    from: process.env.EMAIL_USER,
+    to: process.env.EMAIL_USER,
     subject: 'Hello Admin, New Order Received 🎉 !',
     html: `
       <h3>New Order Placed!</h3>

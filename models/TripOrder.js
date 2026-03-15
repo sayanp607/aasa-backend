@@ -10,6 +10,7 @@ const OrderSchema = new mongoose.Schema({
     phone: String,
     email: String
   },
+  totalAmount: Number,
   createdAt: {
     type: Date,
     default: Date.now

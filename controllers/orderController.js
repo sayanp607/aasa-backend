@@ -28,10 +28,22 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: `Only ${sizeObj.stock} items available for size ${size}` });
     }
 
+    // 1. Atomic Stock Decrement
+    const updatedCloth = await Cloth.findOneAndUpdate(
+      { _id: clothId, "sizes.size": size, "sizes.stock": { $gte: quantity } },
+      { $inc: { "sizes.$.stock": -quantity } },
+      { new: true }
+    );
+
+    if (!updatedCloth) {
+      return res.status(400).json({ message: 'Stock update failed. Possibly out of stock.' });
+    }
+
+    // 2. Create Order
     const newOrder = await Order.create({
       userId,
       cloth: clothId,
-      size,  // important now
+      size,
       amount,
       paymentId,
       shippingId,
@@ -39,15 +51,19 @@ exports.createOrder = async (req, res) => {
     });
 
     await newOrder.populate('userId cloth');
-    await sendOrderNotification(newOrder);
+    
+    // Send email notification (Back to sequential/blocking for confirmation)
+    try {
+      await sendOrderNotification(newOrder);
+    } catch (emailErr) {
+      console.error("Email Notification Error (Order recorded):", emailErr.message);
+    }
 
-    // Deduct stock from selected size
-    sizeObj.stock -= quantity;
-    await cloth.save();
-
+    // 4. Return Success
     res.json({ message: 'Order created successfully', order: newOrder });
 
   } catch (err) {
+    console.error("Global Order Error:", err);
     res.status(500).json({ message: 'Failed to create order', error: err.message });
   }
 };
@@ -119,6 +135,18 @@ exports.createGiftOrder = async (req, res) => {
       return res.status(400).json({ message: `Only ${gift.stock} items available` });
     }
 
+    // 1. Atomic Gift Stock Decrement
+    const updatedGift = await Gift.findOneAndUpdate(
+      { _id: giftId, stock: { $gte: quantity } },
+      { $inc: { stock: -quantity } },
+      { new: true }
+    );
+
+    if (!updatedGift) {
+      return res.status(400).json({ message: 'Gift stock update failed. Possibly out of stock.' });
+    }
+
+    // 2. Create Order
     const newOrder = await Order.create({
       userId,
       gift: giftId,
@@ -129,15 +157,18 @@ exports.createGiftOrder = async (req, res) => {
     });
 
     await newOrder.populate('userId gift');
-    await sendOrderNotification(newOrder);
-
-    // Deduct gift stock
-    gift.stock -= quantity;
-    await gift.save();
+    
+    // Send gift email notification
+    try {
+      await sendOrderNotification(newOrder);
+    } catch (emailErr) {
+      console.error("Delayed Gift Email Notification failed:", emailErr.message);
+    }
 
     res.json({ message: 'Gift order created successfully', order: newOrder });
 
   } catch (err) {
+    console.error("Global Gift Order Error:", err);
     res.status(500).json({ message: 'Failed to create gift order', error: err.message });
   }
 };

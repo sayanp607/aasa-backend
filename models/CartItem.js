@@ -8,6 +8,11 @@ const CartItemSchema = new mongoose.Schema({
   totalGuests: Number,
   pricePerHead: Number,
   totalPrice: Number,
+  extras: {
+    firecamp: Boolean,
+    tentStay: Boolean,
+    food: Boolean
+  },
   createdAt: { type: Date, default: Date.now },
 });
 module.exports = mongoose.model('CartItem', CartItemSchema);
