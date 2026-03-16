@@ -1,4 +1,5 @@
 const Cloth = require('../models/Cloth');
+const redis = require('../config/redis');
 
 // ✅ Create Cloth (with multiple sizes)
 exports.createCloth = async (req, res) => {
@@ -15,6 +16,10 @@ exports.createCloth = async (req, res) => {
     });
 
     await cloth.save();
+    
+    // ⚡ Invalidate Cache
+    await redis.del('cloths:/api/admin/cloth/public/all');
+    
     res.status(201).json(cloth);
   } catch (err) {
     console.error(err);
@@ -50,6 +55,10 @@ exports.updateCloth = async (req, res) => {
     }
 
     await cloth.save();
+
+    // ⚡ Invalidate Cache
+    await redis.del('cloths:/api/admin/cloth/public/all');
+
     res.json({ message: 'Cloth updated', cloth });
   } catch (err) {
     res.status(500).json({ message: 'Server Error', error: err.message });
@@ -66,6 +75,9 @@ exports.deleteCloth = async (req, res) => {
     if (!deleted) {
       return res.status(404).json({ message: 'Cloth not found' });
     }
+
+    // ⚡ Invalidate Cache
+    await redis.del('cloths:/api/admin/cloth/public/all');
 
     res.json({ message: 'Cloth deleted successfully' });
   } catch (err) {

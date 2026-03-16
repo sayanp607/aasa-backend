@@ -35,9 +35,9 @@ const server = http.createServer(app);  // ✅ Correct: create http server
 
 // ✅ CORS setup
 const FRONTEND_ORIGIN = [
-  'http://localhost:5173',
-  'http://192.168.43.1:5173',
-  'https://aasa-five.vercel.app',
+    'http://localhost:5173',
+    'http://192.168.43.1:5173',
+    'https://aasa-five.vercel.app',
 ];
 app.use(cors({
     origin: FRONTEND_ORIGIN,
@@ -69,8 +69,8 @@ app.use('/api/rides', rideRoutes);
 app.use("/api/orders", deliveryorderRoutes);
 app.use("/api/delivery-users", deliveryuserRoutes);
 app.use("/api/contact", contactRoutes);
-app.use('/api/bookings',bookingRoutes);
-app.use('/api/trips', tripRoutes);    
+app.use('/api/bookings', bookingRoutes);
+app.use('/api/trips', tripRoutes);
 app.use('/api/admintrip', admintripRoutes);
 app.use('/api/tripcart', cartitemRoutes);
 app.use('/api/rappelling', rappellingRoutes);
@@ -116,14 +116,24 @@ io.on('connection', (socket) => {
     app.set('driverSockets', driverSockets);
 });
 
+// ✅ Instance identification for DevOps/Load-Balancing
+const INSTANCE_ID = process.env.INSTANCE_ID || 'Standalone';
+
+// ✅ Request tracking middleware
+app.use((req, res, next) => {
+    console.log(`📡 [Instance ${INSTANCE_ID}] Handling: ${req.method} ${req.url}`);
+    next();
+});
+
 // ✅ Connect to DB and start server
 mongoose.connect(process.env.MONGO_URI)
     .then(() => {
-        console.log('MongoDB connected');
-        server.listen(process.env.PORT || 5000, "0.0.0.0", () => {  // ✅ Correct: use server.listen
-            console.log(`Server running on port ${process.env.PORT || 5000}`);
+        console.log(`✅ [Instance ${INSTANCE_ID}] MongoDB connected`);
+        const PORT = process.env.PORT || 5000;
+        server.listen(PORT, "0.0.0.0", () => {
+            console.log(`🚀 [Instance ${INSTANCE_ID}] Server running on port ${PORT}`);
         });
     })
     .catch((err) => {
-        console.error('MongoDB connection failed:', err);
+        console.error(`❌ [Instance ${INSTANCE_ID}] MongoDB connection failed:`, err);
     });

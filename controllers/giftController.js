@@ -1,14 +1,31 @@
 const Gift = require('../models/giftModel');
+const redis = require('../config/redis');
+
+// Helper to clear all gift-related cache
+const clearGiftCache = async () => {
+    try {
+        const keys = await redis.keys('gifts:*');
+        if (keys.length > 0) {
+            await redis.del(keys);
+            console.log(`🧹 Purged ${keys.length} gift cache keys`);
+        }
+    } catch (err) {
+        console.error('❌ Failed to clear gift cache:', err);
+    }
+};
 
 // Add a new gift
 exports.addGift = async (req, res) => {
   try {
     const { name, description, price, category, stock } = req.body;
-const image = req.file ? `/uploads/${req.file.filename}` : null;
+    const image = req.file ? `/uploads/${req.file.filename}` : null;
 
 
     const gift = new Gift({ name, description, price, category, stock, image });
     await gift.save();
+
+    // ⚡ Invalidate Cache
+    await clearGiftCache();
 
     res.status(201).json(gift);
   } catch (err) {
@@ -53,6 +70,9 @@ exports.editGift = async (req, res) => {
       return res.status(404).json({ message: 'Gift not found' });
     }
 
+    // ⚡ Invalidate Cache
+    await clearGiftCache();
+
     res.status(200).json(gift);
   } catch (err) {
     res.status(500).json({ message: 'Failed to update gift', error: err.message });
@@ -65,6 +85,10 @@ exports.deleteGift = async (req, res) => {
   try {
     const gift = await Gift.findByIdAndDelete(req.params.id);
     if (!gift) return res.status(404).json({ message: 'Gift not found' });
+
+    // ⚡ Invalidate Cache
+    await clearGiftCache();
+
     res.status(200).json({ message: 'Gift deleted successfully' });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete gift', error: err.message });
