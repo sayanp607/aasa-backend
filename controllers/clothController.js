@@ -1,5 +1,5 @@
 const Cloth = require('../models/Cloth');
-const redis = require('../config/redis');
+const { purgeClothCache } = require('../utils/cacheHelper');
 
 // ✅ Create Cloth (with multiple sizes)
 exports.createCloth = async (req, res) => {
@@ -18,7 +18,7 @@ exports.createCloth = async (req, res) => {
     await cloth.save();
     
     // ⚡ Invalidate Cache
-    await redis.del('cloths:/api/admin/cloth/public/all');
+    await purgeClothCache();
     
     res.status(201).json(cloth);
   } catch (err) {
@@ -57,7 +57,7 @@ exports.updateCloth = async (req, res) => {
     await cloth.save();
 
     // ⚡ Invalidate Cache
-    await redis.del('cloths:/api/admin/cloth/public/all');
+    await purgeClothCache();
 
     res.json({ message: 'Cloth updated', cloth });
   } catch (err) {
@@ -77,7 +77,7 @@ exports.deleteCloth = async (req, res) => {
     }
 
     // ⚡ Invalidate Cache
-    await redis.del('cloths:/api/admin/cloth/public/all');
+    await purgeClothCache();
 
     res.json({ message: 'Cloth deleted successfully' });
   } catch (err) {

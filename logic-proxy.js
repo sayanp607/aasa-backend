@@ -53,6 +53,21 @@ const server = http.createServer((req, res) => {
     attemptForward(initialIdx, BACKENDS.length - 1);
 });
 
+// 4. Handle WebSocket Upgrades (CRITICAL for Socket.io)
+server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const sid = url.searchParams.get('sid');
+    
+    let target = BACKENDS[currentIdx]; // Default round robin for first handshake if no sid
+    if (sid) {
+        const sidNumber = sid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        target = BACKENDS[sidNumber % BACKENDS.length];
+    }
+
+    console.log(`📡 [WS Upgrade] Routing SID ${sid?.substring(0, 5) || 'NEW'} to ${target.name}`);
+    proxy.ws(req, socket, head, { target: `http://${target.host}:${target.port}` });
+});
+
 const PROXY_PORT = 5000;
 server.listen(PROXY_PORT, () => {
     console.log(`🚀 [Logic Proxy] Production-Grade Load Balancer running on http://localhost:${PROXY_PORT}`);

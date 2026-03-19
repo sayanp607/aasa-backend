@@ -5,6 +5,7 @@ const Ride = require('../models/Ride');
 const auth = require('../middlewares/auth');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
+const { producer } = require('../config/kafka'); // ✅ Import Kafka
 require('dotenv').config();
 // Book ride
 router.post('/book', auth('user'), async (req, res) => {
@@ -27,6 +28,17 @@ router.post('/book', auth('user'), async (req, res) => {
         vehicleType,
         phone
     });
+
+    // 🚀 Kafka Event: Emit "RIDE_BOOKED"
+    try {
+        await producer.send({
+            topic: 'aasa-orders',
+            messages: [{ value: JSON.stringify({ type: 'RIDE_BOOKED', data: ride }) }],
+        });
+        console.log('📡 [Kafka] RIDE_BOOKED event emitted');
+    } catch (kErr) {
+        console.error('⚠️ [Kafka] Failed to emit ride booking event:', kErr.message);
+    }
 
     res.json({ msg: 'Ride booked', rideId: ride._id });
 });
@@ -63,8 +75,6 @@ router.post('/accept/:rideId', auth('driver', 'admin'), async (req, res) => {
   await ride.save();
 
   const io = req.app.get('io');
-  const userSockets = req.app.get('userSockets');
-  const userSocketId = userSockets.get(ride.userId.toString());
   const user = await User.findById(ride.userId);
 
   let driverPhone = "N/A";
@@ -79,18 +89,29 @@ router.post('/accept/:rideId', auth('driver', 'admin'), async (req, res) => {
     }
   }
 
-  // ✅ Send ride accepted event to user
-  if (userSocketId) {
-    io.to(userSocketId).emit('ride_accepted', {
-      rideId: ride._id,
-      otp: ride.otp,
-      driverPhone: driverPhone,
+  // ✅ Send ride accepted event to user room (works across instances)
+  io.to(`user:${ride.userId}`).emit('ride_accepted', {
+    rideId: ride._id,
+    otp: ride.otp,
+    driverPhone: driverPhone,
+  });
+
+  // 🚀 Kafka Event: Emit "RIDE_ACCEPTED"
+  try {
+    await producer.send({
+        topic: 'aasa-orders',
+        messages: [{ value: JSON.stringify({ 
+            type: 'RIDE_ACCEPTED', 
+            data: { ...ride._doc, driverPhone } 
+        }) }],
     });
+    console.log('📡 [Kafka] RIDE_ACCEPTED event emitted');
+  } catch (kErr) {
+    console.error('⚠️ [Kafka] Failed to emit ride accepted event:', kErr.message);
   }
 
   res.json({ msg: 'Ride accepted', ride, userPhone: user?.phone || null });
 });
-
 
 // Reject ride
 router.post('/reject/:rideId', auth('driver','admin'), async (req, res) => {
@@ -101,13 +122,18 @@ router.post('/reject/:rideId', auth('driver','admin'), async (req, res) => {
     ride.driverId = req.userId;
     await ride.save();
 
-    const io = req.app.get('io');
-    const userSockets = req.app.get('userSockets');
-    const userSocketId = userSockets.get(ride.userId.toString());
-
-    if (userSocketId) {
-        io.to(userSocketId).emit('ride_rejected', { rideId: ride._id });
+    // 🚀 Kafka Event: Emit "RIDE_REJECTED"
+    try {
+        await producer.send({
+            topic: 'aasa-orders',
+            messages: [{ value: JSON.stringify({ type: 'RIDE_REJECTED', data: ride }) }],
+        });
+    } catch (kErr) {
+        console.error('⚠️ [Kafka] Failed to emit ride rejection event:', kErr.message);
     }
+
+    const io = req.app.get('io');
+    io.to(`user:${ride.userId}`).emit('ride_rejected', { rideId: ride._id });
 
     res.json({ msg: 'Ride rejected' });
 });
@@ -124,7 +150,50 @@ router.post('/complete/:rideId', auth('driver','admin'), async (req, res) => {
     ride.status = 'Completed';
     await ride.save();
 
+    // 🚀 Kafka Event: Emit "RIDE_COMPLETED"
+    try {
+        await producer.send({
+            topic: 'aasa-orders',
+            messages: [{ value: JSON.stringify({ type: 'RIDE_COMPLETED', data: ride }) }],
+        });
+    } catch (kErr) {
+        console.error('⚠️ [Kafka] Failed to emit ride completion event:', kErr.message);
+    }
+
+    // 🚀 Socket Event: Notify User Room
+    const io = req.app.get('io');
+    io.to(`user:${ride.userId}`).emit('ride_completed', { rideId: ride._id });
+
     res.json({ msg: 'Ride marked as completed' });
+});
+
+// Submit Feedback
+router.patch('/feedback/:rideId', auth('user'), async (req, res) => {
+    const { rating, feedback } = req.body;
+    const ride = await Ride.findById(req.params.rideId);
+
+    if (!ride || ride.userId.toString() !== req.userId) {
+      return res.status(403).json({ error: 'Unauthorized or ride not found' });
+    }
+
+    if (ride.status !== 'Completed') {
+      return res.status(400).json({ error: 'Can only provide feedback for completed rides' });
+    }
+
+    ride.feedback = feedback;
+    await ride.save();
+
+    // 🚀 Kafka Event: Emit "RIDE_FEEDBACK_SUBMITTED"
+    try {
+        await producer.send({
+            topic: 'aasa-orders',
+            messages: [{ value: JSON.stringify({ type: 'RIDE_FEEDBACK_SUBMITTED', data: ride }) }],
+        });
+    } catch (kErr) {
+        console.error('⚠️ [Kafka] Failed to emit feedback event:', kErr.message);
+    }
+
+    res.json({ msg: 'Feedback submitted successfully', ride });
 });
 
 // Delete ride
@@ -182,6 +251,18 @@ router.post('/cancel/:rideId', auth('user'), async (req, res) => {
   }
 
   await ride.deleteOne();
+
+  // 🚀 Kafka Event: Emit "RIDE_CANCELLED"
+  try {
+    await producer.send({
+      topic: 'aasa-orders',
+      messages: [{ value: JSON.stringify({ type: 'RIDE_CANCELLED', data: ride }) }],
+    });
+    console.log('📡 [Kafka] RIDE_CANCELLED event emitted');
+  } catch (kErr) {
+    console.error('⚠️ [Kafka] Failed to emit ride cancellation event:', kErr.message);
+  }
+
   res.json({ msg: "Ride cancelled" });
 });
 

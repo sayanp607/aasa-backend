@@ -18,30 +18,17 @@ const createOrder = async (req, res) => {
       notifyRecipient: req.body.notifyRecipient === "true",  // Ensure it's boolean
     });
 
-    // Email Sending Logic
-    if (req.body.notifyRecipient === "true" && req.body.recipientEmail) {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: "sayanp607@gmail.com",         // Replace with your Gmail
-          pass: "rxgf hxea gzcn iudm"              // Use App Password from Gmail settings
-        }
-      });
+    const { producer } = require("../config/kafka");
 
-      const mailOptions = {
-        from: "sayanp607@gmail.com",
-        to: req.body.recipientEmail,
-        subject: "Your Parcel is Scheduled for Delivery",
-        text: `Hello, your parcel has been scheduled for delivery.\n\nPickup Address: ${pickup.address}\nDelivery Address: ${delivery[0].address}\nDelivery Type: ${req.body.deliveryType}\nPackage Weight: ${req.body.packageWeight} \nParcel Value: ₹${req.body.parcelValue}\n\nThank you for choosing our service!`
-      };
-
-      transporter.sendMail(mailOptions, (error, info) => {
-        if (error) {
-          console.log("Failed to send email:", error);
-        } else {
-          console.log("Email sent successfully:", info.response);
-        }
+    // 🚀 Kafka Event: Emit "DELIVERY_SCHEDULED" (Always emit for logging/admin)
+    try {
+      await producer.send({
+        topic: 'aasa-orders',
+        messages: [{ value: JSON.stringify({ type: 'DELIVERY_SCHEDULED', data: newOrder }) }],
       });
+      console.log('📡 [Kafka] DELIVERY_SCHEDULED event emitted');
+    } catch (kErr) {
+      console.error('⚠️ [Kafka] Failed to emit delivery event:', kErr.message);
     }
 
     res.json(newOrder);
@@ -78,6 +65,19 @@ const updateOrderStatus = async (req, res) => {
 
     order.status = req.body.status;
     await order.save();
+
+    const { producer } = require("../config/kafka");
+
+    // 🚀 Kafka Event: Emit "DELIVERY_STATUS_UPDATED"
+    try {
+      await producer.send({
+        topic: 'aasa-orders',
+        messages: [{ value: JSON.stringify({ type: 'DELIVERY_STATUS_UPDATED', data: order }) }],
+      });
+      console.log('📡 [Kafka] DELIVERY_STATUS_UPDATED event emitted');
+    } catch (kErr) {
+      console.error('⚠️ [Kafka] Failed to emit status update event:', kErr.message);
+    }
 
     res.json(order);
   } catch (err) {

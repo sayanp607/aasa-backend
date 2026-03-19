@@ -17,9 +17,10 @@ const rideSchema = new mongoose.Schema({
     totalDistance:Number,
     totalPrice:Number,
     vehicleType:String,
-    otp: { type: String, default: '' },
     phone: String,
-    createdAt: { type: Date, default: Date.now }
-});
+    otp: String,
+    rating: { type: Number, min: 1, max: 5 },
+    feedback: String
+}, { timestamps: true });
 
 module.exports = mongoose.model('Ride', rideSchema);

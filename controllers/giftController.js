@@ -1,18 +1,5 @@
 const Gift = require('../models/giftModel');
-const redis = require('../config/redis');
-
-// Helper to clear all gift-related cache
-const clearGiftCache = async () => {
-    try {
-        const keys = await redis.keys('gifts:*');
-        if (keys.length > 0) {
-            await redis.del(keys);
-            console.log(`🧹 Purged ${keys.length} gift cache keys`);
-        }
-    } catch (err) {
-        console.error('❌ Failed to clear gift cache:', err);
-    }
-};
+const { purgeGiftCache } = require('../utils/cacheHelper');
 
 // Add a new gift
 exports.addGift = async (req, res) => {
@@ -25,7 +12,7 @@ exports.addGift = async (req, res) => {
     await gift.save();
 
     // ⚡ Invalidate Cache
-    await clearGiftCache();
+    await purgeGiftCache();
 
     res.status(201).json(gift);
   } catch (err) {
@@ -71,7 +58,7 @@ exports.editGift = async (req, res) => {
     }
 
     // ⚡ Invalidate Cache
-    await clearGiftCache();
+    await purgeGiftCache();
 
     res.status(200).json(gift);
   } catch (err) {
@@ -87,7 +74,7 @@ exports.deleteGift = async (req, res) => {
     if (!gift) return res.status(404).json({ message: 'Gift not found' });
 
     // ⚡ Invalidate Cache
-    await clearGiftCache();
+    await purgeGiftCache();
 
     res.status(200).json({ message: 'Gift deleted successfully' });
   } catch (err) {
@@ -135,6 +122,10 @@ exports.reduceGiftStock = async (req, res) => {
 
     gift.stock -= quantity;
     await gift.save();
+
+    // ⚡ Invalidate Cache
+    await purgeGiftCache();
+
     res.json({ message: 'Stock updated', gift });
   } catch (err) {
     res.status(500).json({ message: 'Failed to update stock', error: err.message });

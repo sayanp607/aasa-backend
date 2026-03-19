@@ -4,6 +4,7 @@ const Gift = require('../models/giftModel');
 const Cloth = require('../models/Cloth');
 const Shipping = require('../models/shippingModel');
 const { sendOrderNotification } = require('../utils/emailService');
+const { purgeClothCache, purgeGiftCache } = require('../utils/cacheHelper');
 
 exports.createOrder = async (req, res) => {
   try {
@@ -39,6 +40,8 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Stock update failed. Possibly out of stock.' });
     }
 
+    const { producer } = require('../config/kafka');
+    
     // 2. Create Order
     const newOrder = await Order.create({
       userId,
@@ -51,13 +54,21 @@ exports.createOrder = async (req, res) => {
     });
 
     await newOrder.populate('userId cloth');
-    
-    // Send email notification (Back to sequential/blocking for confirmation)
+
+    // 🚀 Kafka Event: Emit "ORDER_PLACED" (Non-blocking)
     try {
-      await sendOrderNotification(newOrder);
-    } catch (emailErr) {
-      console.error("Email Notification Error (Order recorded):", emailErr.message);
+      await producer.send({
+        topic: 'aasa-orders',
+        messages: [{ value: JSON.stringify({ type: 'CLOTH_ORDER', data: newOrder }) }],
+      });
+      console.log('📡 [Kafka] ORDER_PLACED event emitted for Cloth');
+    } catch (kErr) {
+      console.error('⚠️ [Kafka] Failed to emit order event:', kErr.message);
+      // Fallback: We could log this to a DB for retry, but the order is still saved!
     }
+    
+    // ⚡ Invalidate Public Cloth Cache
+    await purgeClothCache();
 
     // 4. Return Success
     res.json({ message: 'Order created successfully', order: newOrder });
@@ -146,6 +157,8 @@ exports.createGiftOrder = async (req, res) => {
       return res.status(400).json({ message: 'Gift stock update failed. Possibly out of stock.' });
     }
 
+    const { producer } = require('../config/kafka');
+
     // 2. Create Order
     const newOrder = await Order.create({
       userId,
@@ -157,13 +170,20 @@ exports.createGiftOrder = async (req, res) => {
     });
 
     await newOrder.populate('userId gift');
-    
-    // Send gift email notification
+
+    // 🚀 Kafka Event: Emit "ORDER_PLACED" (Non-blocking)
     try {
-      await sendOrderNotification(newOrder);
-    } catch (emailErr) {
-      console.error("Delayed Gift Email Notification failed:", emailErr.message);
+      await producer.send({
+        topic: 'aasa-orders',
+        messages: [{ value: JSON.stringify({ type: 'GIFT_ORDER', data: newOrder }) }],
+      });
+      console.log('📡 [Kafka] ORDER_PLACED event emitted for Gift');
+    } catch (kErr) {
+      console.error('⚠️ [Kafka] Failed to emit gift order event:', kErr.message);
     }
+
+    // ⚡ Invalidate Public Gift Cache
+    await purgeGiftCache();
 
     res.json({ message: 'Gift order created successfully', order: newOrder });
 

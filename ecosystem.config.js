@@ -24,6 +24,13 @@ module.exports = {
       env: {
         NODE_ENV: 'production'
       }
+    },
+    {
+      name: 'NotificationWorker',
+      script: 'workers/notificationWorker.js',
+      env: {
+        NODE_ENV: 'production'
+      }
     }
   ]
 };

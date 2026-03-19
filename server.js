@@ -5,6 +5,7 @@ const http = require('http');
 const dotenv = require('dotenv');
 const bodyParser = require('body-parser');
 const { Server } = require('socket.io');
+const { connectKafka } = require('./config/kafka'); // ✅ Import Kafka
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -47,13 +48,21 @@ app.use(bodyParser.json());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
-// ✅ Initialize Socket.io with correct CORS
+// ✅ Initialize Socket.io with Redis Adapter for multi-instance support
+const { createAdapter } = require("@socket.io/redis-adapter");
+const redis = require('./config/redis');
+
 const io = new Server(server, {
     cors: {
         origin: FRONTEND_ORIGIN,
         credentials: true
     }
 });
+
+// ✅ Attach Redis Adapter (using ioredis)
+const pubClient = redis.duplicate();
+const subClient = redis.duplicate();
+io.adapter(createAdapter(pubClient, subClient));
 
 // ✅ API routes
 app.use('/api/user', authRoutes);
@@ -76,45 +85,32 @@ app.use('/api/tripcart', cartitemRoutes);
 app.use('/api/rappelling', rappellingRoutes);
 app.use('/api/triporder', triporderRoutes);
 
-// ✅ Store user sockets
-const userSockets = new Map();
-const driverSockets = new Map();
-
 io.on('connection', (socket) => {
-    console.log('Socket connected:', socket.id);
+    console.log(`📡 [Instance ${INSTANCE_ID}] Socket connected: ${socket.id}`);
 
+    // ✅ Users/Drivers join their own unique rooms for cross-instance messaging
     socket.on('register_user', (userId) => {
-        userSockets.set(userId, socket.id);
-        console.log(`User ${userId} registered with socket ${socket.id}`);
+        socket.join(`user:${userId}`);
+        console.log(`👤 User ${userId} joined room: user:${userId}`);
     });
 
     socket.on('register_driver', (driverId) => {
-        driverSockets.set(driverId, socket.id);
-        console.log(`Driver ${driverId} registered with socket ${socket.id}`);
+        socket.join(`driver:${driverId}`);
+        console.log(`🚕 Driver ${driverId} joined room: driver:${driverId}`);
     });
 
     socket.on('driver_location', (data) => {
         const { userId, coords } = data;
-        const userSocketId = userSockets.get(userId);
-        if (userSocketId) {
-            io.to(userSocketId).emit('driver_location_update', coords);
-        }
+        // Use Room-based broadcast (works across all instances thanks to Redis)
+        io.to(`user:${userId}`).emit('driver_location_update', coords);
     });
 
     socket.on('disconnect', () => {
-        for (let [userId, sockId] of userSockets) {
-            if (sockId === socket.id) userSockets.delete(userId);
-        }
-        for (let [driverId, sockId] of driverSockets) {
-            if (sockId === socket.id) driverSockets.delete(driverId);
-        }
-        console.log('Socket disconnected:', socket.id);
+        console.log(`📡 [Instance ${INSTANCE_ID}] Socket disconnected: ${socket.id}`);
     });
-
-    app.set('io', io);
-    app.set('userSockets', userSockets);
-    app.set('driverSockets', driverSockets);
 });
+
+app.set('io', io);
 
 // ✅ Instance identification for DevOps/Load-Balancing
 const INSTANCE_ID = process.env.INSTANCE_ID || 'Standalone';
@@ -125,10 +121,13 @@ app.use((req, res, next) => {
     next();
 });
 
-// ✅ Connect to DB and start server
+// ✅ Connect to DB and Kafka, then start server
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
+    .then(async () => {
         console.log(`✅ [Instance ${INSTANCE_ID}] MongoDB connected`);
+        
+        await connectKafka(); // ✅ Connect Kafka Producer
+        
         const PORT = process.env.PORT || 5000;
         server.listen(PORT, "0.0.0.0", () => {
             console.log(`🚀 [Instance ${INSTANCE_ID}] Server running on port ${PORT}`);
