@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Gift = require('../models/giftModel'); 
 const Cloth = require('../models/Cloth');
 const Shipping = require('../models/shippingModel');
-const { sendOrderNotification } = require('../utils/emailService');
+const { sendNotification } = require('../utils/emailService');
 const { purgeClothCache, purgeGiftCache } = require('../utils/cacheHelper');
 
 exports.createOrder = async (req, res) => {
@@ -40,8 +40,6 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Stock update failed. Possibly out of stock.' });
     }
 
-    const { producer } = require('../config/kafka');
-    
     // 2. Create Order
     const newOrder = await Order.create({
       userId,
@@ -55,19 +53,12 @@ exports.createOrder = async (req, res) => {
 
     await newOrder.populate('userId cloth');
 
-    // 🚀 Kafka Event: Emit "ORDER_PLACED" (Non-blocking)
-    try {
-      await producer.send({
-        topic: 'aasa-orders',
-        messages: [{ value: JSON.stringify({ type: 'CLOTH_ORDER', data: newOrder }) }],
-      });
-      console.log('📡 [Kafka] ORDER_PLACED event emitted for Cloth');
-    } catch (kErr) {
-      console.error('⚠️ [Kafka] Failed to emit order event:', kErr.message);
-      // Fallback: We could log this to a DB for retry, but the order is still saved!
-    }
+    // 📧 Direct Email Notification
+    sendNotification('CLOTH_ORDER', newOrder).catch((e) => {
+      console.error('⚠️ [Email] Failed to send cloth order notification:', e.message);
+    });
     
-    // ⚡ Invalidate Public Cloth Cache
+    // ⚡ Invalidate Public Cloth Cache (safe no-op if redis disabled)
     await purgeClothCache();
 
     // 4. Return Success
@@ -78,7 +69,6 @@ exports.createOrder = async (req, res) => {
     res.status(500).json({ message: 'Failed to create order', error: err.message });
   }
 };
-
 
 exports.getUserOrders = async (req, res) => {
   try {
@@ -107,7 +97,6 @@ exports.getAllOrders = async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch orders', error: err.message });
   }
 };
-
 
 // ✅ Update order status (same)
 exports.updateOrderStatus = async (req, res) => {
@@ -157,8 +146,6 @@ exports.createGiftOrder = async (req, res) => {
       return res.status(400).json({ message: 'Gift stock update failed. Possibly out of stock.' });
     }
 
-    const { producer } = require('../config/kafka');
-
     // 2. Create Order
     const newOrder = await Order.create({
       userId,
@@ -171,18 +158,12 @@ exports.createGiftOrder = async (req, res) => {
 
     await newOrder.populate('userId gift');
 
-    // 🚀 Kafka Event: Emit "ORDER_PLACED" (Non-blocking)
-    try {
-      await producer.send({
-        topic: 'aasa-orders',
-        messages: [{ value: JSON.stringify({ type: 'GIFT_ORDER', data: newOrder }) }],
-      });
-      console.log('📡 [Kafka] ORDER_PLACED event emitted for Gift');
-    } catch (kErr) {
-      console.error('⚠️ [Kafka] Failed to emit gift order event:', kErr.message);
-    }
+    // 📧 Direct Email Notification
+    sendNotification('GIFT_ORDER', newOrder).catch((e) => {
+      console.error('⚠️ [Email] Failed to send gift order notification:', e.message);
+    });
 
-    // ⚡ Invalidate Public Gift Cache
+    // ⚡ Invalidate Public Gift Cache (safe no-op if redis disabled)
     await purgeGiftCache();
 
     res.json({ message: 'Gift order created successfully', order: newOrder });

@@ -5,7 +5,6 @@ const http = require('http');
 const dotenv = require('dotenv');
 const bodyParser = require('body-parser');
 const { Server } = require('socket.io');
-const { connectKafka } = require('./config/kafka'); // ✅ Import Kafka
 
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -31,7 +30,7 @@ const rappellingRoutes = require('./routes/rappelling');
 dotenv.config();
 
 const app = express();
-const server = http.createServer(app);  // ✅ Correct: create http server
+const server = http.createServer(app);
 
 // ✅ CORS setup
 const FRONTEND_ORIGIN = [
@@ -86,25 +85,13 @@ app.get('/', (req, res) => {
     res.status(200).json({ status: 'ok', message: 'Aasa Backend API is running' });
 });
 
-// ✅ Initialize Socket.io with Redis Adapter for multi-instance support
-const { createAdapter } = require("@socket.io/redis-adapter");
-const redis = require('./config/redis');
-
+// ✅ Initialize Socket.io (In-memory mode, no Redis required)
 const io = new Server(server, {
     cors: {
         origin: (origin, callback) => callback(null, true),
         credentials: true
     }
 });
-
-// ✅ Attach Redis Adapter (using ioredis)
-try {
-    const pubClient = redis.duplicate();
-    const subClient = redis.duplicate();
-    io.adapter(createAdapter(pubClient, subClient));
-} catch (adapterErr) {
-    console.warn('⚠️ Redis Adapter setup failed, fallback to in-memory:', adapterErr.message);
-}
 
 // ✅ API routes
 app.use('/api/user', authRoutes);
@@ -127,13 +114,13 @@ app.use('/api/tripcart', cartitemRoutes);
 app.use('/api/rappelling', rappellingRoutes);
 app.use('/api/triporder', triporderRoutes);
 
-// ✅ Instance identification for DevOps/Load-Balancing
+// ✅ Instance identification
 const INSTANCE_ID = process.env.INSTANCE_ID || 'Standalone';
 
 io.on('connection', (socket) => {
     console.log(`📡 [Instance ${INSTANCE_ID}] Socket connected: ${socket.id}`);
 
-    // ✅ Users/Drivers join their own unique rooms for cross-instance messaging
+    // Users/Drivers join their own unique rooms
     socket.on('register_user', (userId) => {
         socket.join(`user:${userId}`);
         console.log(`👤 User ${userId} joined room: user:${userId}`);
@@ -146,7 +133,6 @@ io.on('connection', (socket) => {
 
     socket.on('driver_location', (data) => {
         const { userId, coords } = data;
-        // Use Room-based broadcast (works across all instances thanks to Redis)
         io.to(`user:${userId}`).emit('driver_location_update', coords);
     });
 
@@ -177,8 +163,3 @@ mongoose.connect(process.env.MONGO_URI)
     .catch((err) => {
         console.error(`❌ [Instance ${INSTANCE_ID}] MongoDB connection failed:`, err);
     });
-
-// ✅ Connect Kafka Producer & Consumer asynchronously
-connectKafka().catch((err) => {
-    console.warn(`⚠️ [Instance ${INSTANCE_ID}] Kafka initialization bypassed:`, err.message);
-});
