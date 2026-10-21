@@ -28,7 +28,6 @@ const cartitemRoutes = require('./routes/cartitem');
 const triporderRoutes = require('./routes/triporder');
 const rappellingRoutes = require('./routes/rappelling');
 
-
 dotenv.config();
 
 const app = express();
@@ -40,13 +39,52 @@ const FRONTEND_ORIGIN = [
     'http://192.168.43.1:5173',
     'https://aasa-five.vercel.app',
 ];
-app.use(cors({
-    origin: FRONTEND_ORIGIN,
-    credentials: true
-}));
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+        if (
+            FRONTEND_ORIGIN.includes(origin) ||
+            origin.endsWith('.vercel.app') ||
+            origin.includes('localhost')
+        ) {
+            return callback(null, true);
+        }
+        return callback(null, true);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
+// Explicit preflight handler (Express 5 compatible)
+app.use((req, res, next) => {
+    if (req.method === 'OPTIONS') {
+        const origin = req.headers.origin;
+        if (origin) {
+            res.header('Access-Control-Allow-Origin', origin);
+        } else {
+            res.header('Access-Control-Allow-Origin', '*');
+        }
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(bodyParser.json());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
+
+// Health check / root endpoint
+app.get('/', (req, res) => {
+    res.status(200).json({ status: 'ok', message: 'Aasa Backend API is running' });
+});
 
 // ✅ Initialize Socket.io with Redis Adapter for multi-instance support
 const { createAdapter } = require("@socket.io/redis-adapter");
@@ -54,15 +92,19 @@ const redis = require('./config/redis');
 
 const io = new Server(server, {
     cors: {
-        origin: FRONTEND_ORIGIN,
+        origin: (origin, callback) => callback(null, true),
         credentials: true
     }
 });
 
 // ✅ Attach Redis Adapter (using ioredis)
-const pubClient = redis.duplicate();
-const subClient = redis.duplicate();
-io.adapter(createAdapter(pubClient, subClient));
+try {
+    const pubClient = redis.duplicate();
+    const subClient = redis.duplicate();
+    io.adapter(createAdapter(pubClient, subClient));
+} catch (adapterErr) {
+    console.warn('⚠️ Redis Adapter setup failed, fallback to in-memory:', adapterErr.message);
+}
 
 // ✅ API routes
 app.use('/api/user', authRoutes);
@@ -84,6 +126,9 @@ app.use('/api/admintrip', admintripRoutes);
 app.use('/api/tripcart', cartitemRoutes);
 app.use('/api/rappelling', rappellingRoutes);
 app.use('/api/triporder', triporderRoutes);
+
+// ✅ Instance identification for DevOps/Load-Balancing
+const INSTANCE_ID = process.env.INSTANCE_ID || 'Standalone';
 
 io.on('connection', (socket) => {
     console.log(`📡 [Instance ${INSTANCE_ID}] Socket connected: ${socket.id}`);
@@ -112,27 +157,28 @@ io.on('connection', (socket) => {
 
 app.set('io', io);
 
-// ✅ Instance identification for DevOps/Load-Balancing
-const INSTANCE_ID = process.env.INSTANCE_ID || 'Standalone';
-
 // ✅ Request tracking middleware
 app.use((req, res, next) => {
     console.log(`📡 [Instance ${INSTANCE_ID}] Handling: ${req.method} ${req.url}`);
     next();
 });
 
-// ✅ Connect to DB and Kafka, then start server
+// ✅ Start HTTP server immediately so Render health check passes instantly
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 [Instance ${INSTANCE_ID}] Server running on port ${PORT}`);
+});
+
+// ✅ Connect to DB asynchronously
 mongoose.connect(process.env.MONGO_URI)
-    .then(async () => {
+    .then(() => {
         console.log(`✅ [Instance ${INSTANCE_ID}] MongoDB connected`);
-        
-        await connectKafka(); // ✅ Connect Kafka Producer
-        
-        const PORT = process.env.PORT || 5000;
-        server.listen(PORT, "0.0.0.0", () => {
-            console.log(`🚀 [Instance ${INSTANCE_ID}] Server running on port ${PORT}`);
-        });
     })
     .catch((err) => {
         console.error(`❌ [Instance ${INSTANCE_ID}] MongoDB connection failed:`, err);
     });
+
+// ✅ Connect Kafka Producer & Consumer asynchronously
+connectKafka().catch((err) => {
+    console.warn(`⚠️ [Instance ${INSTANCE_ID}] Kafka initialization bypassed:`, err.message);
+});
