@@ -156,10 +156,14 @@ server.listen(PORT, "0.0.0.0", () => {
 });
 
 // ✅ Connect to DB asynchronously
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-        console.log(`✅ [Instance ${INSTANCE_ID}] MongoDB connected`);
-    })
-    .catch((err) => {
-        console.error(`❌ [Instance ${INSTANCE_ID}] MongoDB connection failed:`, err);
-    });
+if (process.env.NODE_ENV !== 'test') {
+    mongoose.connect(process.env.MONGO_URI)
+        .then(() => {
+            console.log(`✅ [Instance ${INSTANCE_ID}] MongoDB connected`);
+        })
+        .catch((err) => {
+            console.error(`❌ [Instance ${INSTANCE_ID}] MongoDB connection failed:`, err);
+        });
+}
+
+module.exports = { app, server };
