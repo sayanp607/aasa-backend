@@ -34,7 +34,7 @@ jobs:
     name: Deploy to AWS EC2 (Free Tier)
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'push'
 
     steps:
       - name: SSH and Deploy to EC2
@@ -44,16 +44,17 @@ jobs:
           username: ${{ secrets.AWS_EC2_USER || 'ubuntu' }}
           key: ${{ secrets.AWS_EC2_SSH_KEY }}
           script: |
-            echo "🚀 Navigating to project directory..."
-            cd ~/aasa || cd /var/www/aasa || exit 1
+            echo "🚀 Navigating to backend directory..."
+            cd ~/aasa/aasa-backend || exit 1
             
             echo "📥 Pulling latest code..."
-            git pull origin main
+            git pull origin master || git pull origin main
             
             echo "🐳 Rebuilding and restarting Backend container..."
-            docker compose up -d --build backend
+            cd ~/aasa
+            sudo docker compose up -d --build backend
             
             echo "🧹 Cleaning up unused Docker images..."
-            docker image prune -f
+            sudo docker image prune -f
             
             echo "✅ Backend deployment complete!"
