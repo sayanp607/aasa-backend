@@ -34,20 +34,21 @@ describe('Backend Integration Tests - API Lifecycle & Security', () => {
     });
 
     describe('Protected Route Security Integration', () => {
-        it('GET /api/user/profile should reject requests without Authorization header (401)', async () => {
-            const res = await request(app).get('/api/user/profile');
+        it('POST /api/orders/create should reject requests without Authorization header (401)', async () => {
+            const res = await request(app).post('/api/orders/create');
             expect(res.statusCode).toBe(401);
-            expect(res.body).toHaveProperty('message');
+            expect(res.body).toEqual({ message: 'No token provided' });
         });
 
-        it('GET /api/user/profile should reject requests with forged tokens (401)', async () => {
+        it('POST /api/orders/create should reject requests with forged tokens (401)', async () => {
             const res = await request(app)
-                .get('/api/user/profile')
+                .post('/api/orders/create')
                 .set('Authorization', 'Bearer forged_token_value_abc');
             expect(res.statusCode).toBe(401);
+            expect(res.body).toEqual({ message: 'Invalid token' });
         });
 
-        it('Accessing admin endpoint without admin token should be forbidden (401 or 403)', async () => {
+        it('Accessing admin endpoint without admin token should be forbidden (401, 403, or 404)', async () => {
             const userToken = jwt.sign(
                 { id: 'regular_user_1', role: 'user' },
                 process.env.JWT_SECRET
