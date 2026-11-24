@@ -215,23 +215,70 @@ router.get('/my', auth('user'), async (req, res) => {
     res.json(rides);
 });
 
+// Helper: Haversine distance in km
+function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c * 1.3; // 1.3 road curvature factor
+}
+
 router.get("/distance", async (req, res) => {
   const { pickupLat, pickupLng, dropLat, dropLng } = req.query;
 
-  try {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${pickupLat},${pickupLng}&destinations=${dropLat},${dropLng}&key=${apiKey}`;
-
-    console.log("Calling Distance API with URL:", url);
-
-    const response = await axios.get(url);
-    console.log("Distance API Response:", response.data);
-
-    res.json(response.data);
-  } catch (err) {
-    console.error("Distance Calculation Failed:", err.response?.data || err.message);
-    res.status(500).json({ error: "Failed to calculate distance" });
+  if (!pickupLat || !pickupLng || !dropLat || !dropLng) {
+    return res.status(400).json({ error: "Missing coordinates" });
   }
+
+  const pLat = parseFloat(pickupLat);
+  const pLng = parseFloat(pickupLng);
+  const dLat = parseFloat(dropLat);
+  const dLng = parseFloat(dropLng);
+
+  try {
+    // 1. Try Free OpenStreetMap OSRM Road Routing
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${pLng},${pLat};${dLng},${dLat}?overview=false`;
+    const osrmRes = await axios.get(osrmUrl, { timeout: 4000 });
+
+    if (osrmRes.data?.routes?.[0]) {
+      const distanceMeters = osrmRes.data.routes[0].distance;
+      const durationSeconds = osrmRes.data.routes[0].duration;
+      const km = (distanceMeters / 1000).toFixed(1);
+      const mins = Math.max(1, Math.round(durationSeconds / 60));
+
+      return res.json({
+        rows: [{
+          elements: [{
+            status: "OK",
+            distance: { text: `${km} km`, value: Math.round(distanceMeters) },
+            duration: { text: `${mins} mins`, value: Math.round(durationSeconds) }
+          }]
+        }]
+      });
+    }
+  } catch (osrmErr) {
+    console.warn("OSRM routing unavailable, using Haversine calculation:", osrmErr.message);
+  }
+
+  // 2. High-precision Haversine Fallback
+  const km = parseFloat(calculateHaversineDistance(pLat, pLng, dLat, dLng).toFixed(1));
+  const meters = Math.round(km * 1000);
+  const estimatedMins = Math.max(1, Math.round(km * 2.5)); // ~25km/h avg speed
+
+  res.json({
+    rows: [{
+      elements: [{
+        status: "OK",
+        distance: { text: `${km} km`, value: meters },
+        duration: { text: `${estimatedMins} mins`, value: estimatedMins * 60 }
+      }]
+    }]
+  });
 });
 // User cancels ride if still pending
 router.post('/cancel/:rideId', auth('user'), async (req, res) => {
